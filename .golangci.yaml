@@ -1,0 +1,17 @@
+linters-settings:
+  revive:
+    rules:
+      - name: dot-imports
+        disabled: true
+  errcheck:
+    # I could not find a way to mark these functions to be ignored by errcheck using the exclude/exclude-functions way
+    # That's why here the deprecated way using the -ignore switch
+    ignore: "github.com/esome/golang-sync/channels:(Forward|SendE?|Drain)"
+    # This seemingly has no effect (see comment above), but I let it here nevertheless
+    exclude-functions:
+      - github.com/esome/golang-sync/channels.Forward
+      - github.com/esome/golang-sync/channels.Send
+      - github.com/esome/golang-sync/channels.SendE
+      - github.com/esome/golang-sync/channels.Drain
+  stylecheck:
+    checks: [ "all", "-ST1000", "-ST1003", "-ST1016", "-ST1020", "-ST1021", "-ST1022" ]
