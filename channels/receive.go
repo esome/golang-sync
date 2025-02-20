@@ -2,7 +2,10 @@
 
 package channels
 
-import "context"
+import (
+	"context"
+	"sync"
+)
 
 // ChunkAndDo reads the given channel up until X elements, defined by size parameter, have been consumed,
 // and then calls the doer function provided, passing the actual chunk of data.
@@ -89,4 +92,40 @@ loop:
 		}
 	}
 	return items, ctx.Err()
+}
+
+// Merge joins the provided list of source channels into a single one,
+// which can then be consumed in the main thread
+//
+// It returns the joined T channel and takes care of closing it properly
+// after having consumed all the source channels until they are closed, or the context is canceled.
+// In case of context cancellation, make sure to cancel the producing channels to avoid leaking goroutines.
+func Merge[T any](ctx context.Context, sources ...<-chan T) <-chan T {
+	merged := make(chan T, len(sources))
+	var wg sync.WaitGroup
+	wg.Add(len(sources))
+
+	for _, src := range sources {
+		go func(src <-chan T) {
+			defer wg.Done()
+			for src != nil {
+				select {
+				case <-ctx.Done():
+					return
+				case item, ok := <-src:
+					if !ok {
+						return
+					}
+					_ = Send(ctx, merged, item)
+				}
+			}
+		}(src)
+	}
+
+	go func() {
+		wg.Wait()
+		close(merged)
+	}()
+
+	return merged
 }

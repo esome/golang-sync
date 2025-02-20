@@ -249,3 +249,69 @@ func TestDrainWithCount(t *testing.T) {
 		assert.Greater(t, 50, discarded)
 	})
 }
+
+func TestMerge(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	t.Run("success", func(t *testing.T) {
+		srcs := make([]<-chan int, 10)
+		for i := range srcs {
+			if i%2 == 1 { // skip every second source
+				srcs[i] = nil
+				continue
+			}
+
+			srcs[i] = func(i int) <-chan int {
+				ctx := context.TODO()
+				src := make(chan int, 10)
+				go func() {
+					defer close(src)
+					for j := 0; j < 10; j++ {
+						_ = Send(ctx, src, i*10+j)
+					}
+				}()
+				return src
+			}(i)
+		}
+
+		ctx := context.TODO()
+		merged := Merge(ctx, srcs...)
+		ints, err := Collect(ctx, merged)
+		assert.NoError(t, err)
+		assert.Len(t, ints, 50)
+	})
+
+	t.Run("context cancellation", func(t *testing.T) {
+		sendCtx, cancel := context.WithCancel(context.TODO())
+		t.Cleanup(cancel)
+
+		srcs := make([]<-chan int, 10)
+		for i := range srcs {
+			srcs[i] = func(i int) <-chan int {
+				src := make(chan int, 10)
+				go func() {
+					defer close(src)
+					for j := 0; j < 10; j++ {
+						_ = Send(sendCtx, src, i*10+j)
+					}
+				}()
+				return src
+			}(i)
+		}
+
+		ctx, cancel := context.WithCancel(context.TODO())
+		defer cancel()
+
+		merged := Merge(ctx, srcs...)
+		var items = make([]int, 0, 50)
+		for nmr := range merged {
+			items = append(items, nmr)
+			if len(items) == 25 {
+				cancel()
+				time.Sleep(5 * time.Millisecond) // give the merge goroutine some time to exit
+			}
+		}
+
+		assert.Greater(t, cap(items), len(items))
+	})
+}
